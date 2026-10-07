@@ -20,6 +20,28 @@ STUDENTS = {
 }
 
 
+from flask import Flask, request, abort, redirect, url_for, jsonify, make_response
+from markupsafe import escape
+
+app = Flask(__name__)
+app.json.ensure_ascii = False
+
+STUDENTS = {
+    "23T1020001": {"name": "Nguyễn Văn An", "lop": "K47A",
+                   "scores": {"PMMNM": 8.5, "CSDL": 7.0, "MMT": 9.0}},
+    "23T1020002": {"name": "Trần Thị Bình", "lop": "K47A",
+                   "scores": {"PMMNM": 6.0, "CSDL": 5.5, "MMT": 7.0}},
+    "23T1020003": {"name": "Lê Hoàng Cường", "lop": "K47B",
+                   "scores": {"PMMNM": 9.5, "CSDL": 9.0}},
+    "23T1020004": {"name": "Phạm Minh Dũng", "lop": "K47B",
+                   "scores": {"PMMNM": 4.0, "CSDL": 3.5, "MMT": 5.0}},
+    "23T1020005": {"name": "Hoàng Thu Hà", "lop": "K47A",
+                   "scores": {}},
+    "23T1020006": {"name": "Võ Quốc Khánh", "lop": "K47C",
+                   "scores": {"PMMNM": 7.5, "MMT": 8.0}},
+}
+
+
 def average(scores):
     if not scores:
         return None
@@ -179,7 +201,8 @@ def search():
     results = []
     if q:
         for mssv, s in STUDENTS.items():
-            pass
+            if q.lower() in s["name"].lower() or q.lower() in mssv.lower():
+                results.append(mssv)
 
     form = f"""
   <form method="get" action="{url_for('search')}">
@@ -217,7 +240,10 @@ def api_students():
     result = []
     for mssv in STUDENTS:
         info = student_summary(mssv)
-
+        if lop and info["lop"].lower() != lop.lower():
+            continue
+        if min_avg is not None and (info["average"] is None or info["average"] < min_avg):
+            continue
         result.append(info)
     return jsonify(result)
 
@@ -238,12 +264,25 @@ def course_score(mssv, course):
     scores = STUDENTS[mssv]["scores"]
 
     if request.method == "GET":
-        pass
+        if course not in scores:
+            abort(404, description=f"Sinh viên {mssv} chưa có điểm học phần {course}.")
+        return jsonify({"mssv": mssv, "course": course, "score": scores[course]})
 
     if request.method == "DELETE":
-        pass
+        if course not in scores:
+            abort(404, description=f"Sinh viên {mssv} chưa có điểm học phần {course}.")
+        del scores[course]
+        return "", 204
 
     raw = request.args.get("score")
+    if raw is None:
+        abort(400, description="Thiếu tham số score.")
+    try:
+        score = float(raw)
+    except ValueError:
+        abort(400, description="score phải là một số.")
+    if score < 0 or score > 10:
+        abort(400, description="score phải nằm trong khoảng 0 đến 10.")
 
     existed = course in scores
     scores[course] = score
@@ -255,6 +294,9 @@ def course_score(mssv, course):
         "average": average(scores),
     }
     location = url_for("course_score", mssv=mssv, course=course)
+    if not existed:
+        return jsonify(body), 201, {"Location": location}
+    return jsonify(body), 200
 
 
 ERROR_TITLES = {
@@ -273,5 +315,7 @@ def handle_error(error):
     if request.path.startswith("/api/"):
         return jsonify({"error": title, "detail": error.description}), error.code
 
-    body = ...
+    body = f"""
+  <p>Mã lỗi: {error.code}</p>
+  <p>{escape(error.description)}</p>"""
     return layout(title, body), error.code
